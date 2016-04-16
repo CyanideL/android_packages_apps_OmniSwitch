@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013 The OmniROM Project
+ *  Copyright (C) 2013-2016 The OmniROM Project
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,11 +18,15 @@
 package org.omnirom.omniswitch.ui;
 
 import org.omnirom.omniswitch.R;
+import org.omnirom.omniswitch.colorpicker.ColorPickerDialog;
 import org.omnirom.omniswitch.SettingsActivity;
 import org.omnirom.omniswitch.SwitchConfiguration;
 import org.omnirom.omniswitch.SwitchService;
 
+import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
@@ -30,6 +34,8 @@ import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.graphics.PorterDuff.Mode;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.ShapeDrawable;
+import android.graphics.drawable.shapes.RectShape;
 import android.preference.PreferenceManager;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -41,13 +47,13 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.SeekBar;
 
-public class SettingsGestureView {
+public class SettingsGestureView implements DialogInterface.OnDismissListener {
     private WindowManager mWindowManager;
     private ImageView mDragButton;
     private ImageView mDragButtonStart;
     private ImageView mDragButtonEnd;
-
     private Button mOkButton;
     private Button mCancelButton;
     private Button mLocationButton;
@@ -56,7 +62,6 @@ public class SettingsGestureView {
     private LinearLayout mDragHandleViewLeft;
     private LinearLayout mDragHandleViewRight;
     private Context mContext;
-
     private int mLocation = 0; // 0 = right 1 = left
     private boolean mShowing;
     private float mDensity;
@@ -75,6 +80,11 @@ public class SettingsGestureView {
     private int mDragHandleMinHeight;
     private int mDragHandleLimiterHeight;
     private SwitchConfiguration mConfiguration;
+    private SeekBar mDragHandleWidthBar;
+    private int mDragHandleWidth;
+    private ImageView mDragHandleColorView;
+    private View mDragHandleColorContainer;
+    private Dialog mDialog;
 
     public SettingsGestureView(Context context) {
         mContext = context;
@@ -89,6 +99,7 @@ public class SettingsGestureView {
 
         mDragHandleLimiterHeight = Math.round(20 * mDensity);
         mDragHandleMinHeight = Math.round(60 * mDensity);
+        mDragHandleWidth = mConfiguration.mDefaultDragHandleWidth;
 
         mDragHandle = mContext.getResources().getDrawable(
                 R.drawable.drag_handle);
@@ -225,13 +236,45 @@ public class SettingsGestureView {
             }
         });
 
+        mDragHandleWidthBar = (SeekBar) mView.findViewById(R.id.drag_handle_width);
+        double min = mConfiguration.mDefaultDragHandleWidth * 0.5f;
+        double max = mConfiguration.mDefaultDragHandleWidth * 1.5f;
+        double value = mConfiguration.mDragHandleWidth;
+        double progressValue = scaleValue(value, min, max, 1f, 100f);
+        mDragHandleWidthBar.setProgress((int) progressValue);
+        mDragHandleWidthBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                double progressValue = seekBar.getProgress();
+                // 50 = mConfiguration.mDefaultDragHandleWidth
+                // max = 1.5 * mConfiguration.mDefaultDragHandleWidth
+                // min = mConfiguration.mDefaultDragHandleWidth / 2
+                // 1-100 -> 0.5-1.5
+                double scaleFactor= scaleValue(progressValue, 1f, 100f, 0.5f, 1.5f);
+                mDragHandleWidth = (int) (mConfiguration.mDefaultDragHandleWidth * scaleFactor);
+                updateDragHandleLayoutParams();
+            }
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress,
+                    boolean fromUser) {
+            }
+        });
+
         mOkButton.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
+                if (mDialog != null) {
+                    mDialog.dismiss();
+                }
                 Editor edit = mPrefs.edit();
                 edit.putInt(SettingsActivity.PREF_DRAG_HANDLE_LOCATION, mLocation);
                 int relHeight = (int)(mStartY / (mConfiguration.getCurrentDisplayHeight() /100));
                 edit.putInt(SettingsActivity.PREF_HANDLE_POS_START_RELATIVE, relHeight);
                 edit.putInt(SettingsActivity.PREF_HANDLE_HEIGHT, mEndY - mStartY);
+                edit.putInt(SettingsActivity.PREF_HANDLE_WIDTH, mDragHandleWidth);
+                edit.putInt(SettingsActivity.PREF_DRAG_HANDLE_COLOR_NEW, mColor);
                 edit.commit();
                 hide();
             }
@@ -239,6 +282,9 @@ public class SettingsGestureView {
 
         mCancelButton.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
+                if (mDialog != null) {
+                    mDialog.dismiss();
+                }
                 hide();
             }
         });
@@ -273,13 +319,24 @@ public class SettingsGestureView {
                 return false;
             }
         });
+
+        mDragHandleColorView = (ImageView) mView.findViewById(R.id.drag_handle_color);
+        mDragHandleColorContainer = mView.findViewById(R.id.drag_handle_color_view);
+        mDragHandleColorContainer.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (mDialog != null && mDialog.isShowing()) return;
+                mDialog = getColorDialog();
+                mDialog.setOnDismissListener(SettingsGestureView.this);
+                mDialog.show();
+            }
+        });
     }
 
     public WindowManager.LayoutParams getGesturePanelLayoutParams() {
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.TYPE_APPLICATION,
                 WindowManager.LayoutParams.FLAG_DIM_BEHIND,
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.CENTER;
@@ -308,7 +365,8 @@ public class SettingsGestureView {
     }
     private void updateDragHandleLayoutParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                (int) (20 * mDensity + 0.5), (int) (mEndY - mStartY));
+                mDragHandleWidth,
+                (int) (mEndY - mStartY));
         params.gravity = mLocation == 1 ? Gravity.LEFT : Gravity.RIGHT;
         mDragButton.setLayoutParams(params);
 
@@ -348,20 +406,19 @@ public class SettingsGestureView {
         mDragButtonEnd.setRotation(mLocation == 1 ? 180 : 0);
     }
 
-    // cannot use SwitchConfiguration since service must not
-    // be running at this point
     private void updateFromPrefs() {
-        mStartY = SwitchConfiguration.getInstance(mContext).getCurrentOffsetStart();
-        mEndY = SwitchConfiguration.getInstance(mContext).getCurrentOffsetEnd();
+        mStartY = mConfiguration.getCurrentOffsetStart();
+        mEndY = mConfiguration.getCurrentOffsetEnd();
+        mDragHandleWidth = mConfiguration.mDragHandleWidth;
 
-        mLocation = SwitchConfiguration.getInstance(mContext).mLocation;
+        mLocation = mConfiguration.mLocation;
         if (mLocation == 1){
             mLocationButton.setText(mContext.getResources().getString(R.string.location_right));
         } else {
             mLocationButton.setText(mContext.getResources().getString(R.string.location_left));
         }
-        // discard alpha
-        mColor = SwitchConfiguration.getInstance(mContext).mDragHandleColor | 0xFF000000;
+        mColor = mConfiguration.mDragHandleColor;
+        updateColorRect();
     }
 
     public void show() {
@@ -393,8 +450,12 @@ public class SettingsGestureView {
     }
 
     public void resetPosition() {
-        mStartY = SwitchConfiguration.getInstance(mContext).getDefaultOffsetStart();
-        mEndY = SwitchConfiguration.getInstance(mContext).getDefaultOffsetEnd();
+        mStartY = mConfiguration.getDefaultOffsetStart();
+        mEndY = mConfiguration.getDefaultOffsetEnd();
+        mDragHandleWidth = mConfiguration.mDefaultDragHandleWidth;
+        mDragHandleWidthBar.setProgress(50);
+        mColor = mConfiguration.mDefaultColor;
+        updateColorRect();
         updateLayout();
     }
 
@@ -403,8 +464,8 @@ public class SettingsGestureView {
     }
 
     public void handleRotation(){
-        mStartY = SwitchConfiguration.getInstance(mContext).getCustomOffsetStart(mStartYRelative);
-        mEndY = SwitchConfiguration.getInstance(mContext).getCustomOffsetEnd(mStartYRelative, mHandleHeight);
+        mStartY = mConfiguration.getCustomOffsetStart(mStartYRelative);
+        mEndY = mConfiguration.getCustomOffsetEnd(mStartYRelative, mHandleHeight);
         updateLayout();
     }
 
@@ -414,5 +475,57 @@ public class SettingsGestureView {
 
     private int getUpperHandleLimit() {
         return mConfiguration.mLevelHeight / 2;
+    }
+
+    private double scaleValue(double value, double oldMin, double oldMax, double newMin, double newMax) {
+        return ( (value - oldMin) / (oldMax - oldMin) ) * (newMax - newMin) + newMin;
+    }
+
+    private static ShapeDrawable createRectShape(int width, int height, int color) {
+        ShapeDrawable shape = new ShapeDrawable(new RectShape());
+        shape.setIntrinsicHeight(height);
+        shape.setIntrinsicWidth(width);
+        shape.getPaint().setColor(color);
+        return shape;
+    }
+
+    private void updateColorRect() {
+        final int width = (int) mContext.getResources().getDimension(R.dimen.color_button_width);
+        final int height = (int) mContext.getResources().getDimension(R.dimen.color_button_height);
+        mDragHandleColorView.setImageDrawable(createRectShape(width, height, mColor));
+    }
+
+    private Dialog getColorDialog() {
+        final ColorPickerDialog d = new ColorPickerDialog(mContext, mColor, true);
+        d.setButton(AlertDialog.BUTTON_POSITIVE,
+                mContext.getResources().getString(R.string.ok),
+                new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        mColor = d.getColor();
+                        updateColorRect();
+                        updateDragHandleImage();
+                    }
+                });
+        d.setButton(AlertDialog.BUTTON_NEUTRAL,
+                mContext.getResources().getString(R.string.reset),
+                new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        mColor = mConfiguration.mDefaultColor;
+                        updateColorRect();
+                        updateDragHandleImage();
+                        d.dismiss();
+                    }
+                });
+        d.setButton(AlertDialog.BUTTON_NEGATIVE,
+                mContext.getResources().getString(R.string.cancel),
+                (DialogInterface.OnClickListener) null);
+        return d;
+    }
+
+    @Override
+    public void onDismiss(DialogInterface dialog) {
+        mDialog = null;
     }
 }

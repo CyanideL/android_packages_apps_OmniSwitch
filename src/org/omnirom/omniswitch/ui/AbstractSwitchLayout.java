@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2015 The OmniROM Project
+ *  Copyright (C) 2015-2016 The OmniROM Project
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,6 +40,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Point;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.preference.PreferenceManager;
@@ -136,6 +137,8 @@ public abstract class AbstractSwitchLayout implements ISwitchLayout {
     protected TextView mNoRecentApps;
     protected LinearLayout mButtonListItems;
     protected LinearLayout mButtonListContainer;
+    protected LinearLayout mButtonListContainerTop;
+    protected LinearLayout mButtonListContainerBottom;
     protected LinearLayout mRecents;
     protected ImageView mOpenFavorite;
     protected AnimatorSet mShowFavAnim;
@@ -675,6 +678,8 @@ public abstract class AbstractSwitchLayout implements ISwitchLayout {
         item.setGravity(Gravity.CENTER);
         item.setLayoutParams(getListItemParams());
         item.setMaxLines(1);
+        Typeface font = Typeface.create("sans-serif-condensed", Typeface.NORMAL);
+        item.setTypeface(font);
         item.setBackgroundResource(mConfiguration.mBgStyle == SwitchConfiguration.BgStyle.SOLID_LIGHT ? R.drawable.ripple_dark
                 : R.drawable.ripple_light);
         return item;
@@ -821,10 +826,39 @@ public abstract class AbstractSwitchLayout implements ISwitchLayout {
         mPopup = popup;
         popup.getMenuInflater().inflate(R.menu.recent_popup_menu,
                 popup.getMenu());
-        popup.getMenu().findItem(R.id.package_add_favorite)
-                .setEnabled(intentStr != null && !mFavoriteList.contains(intentStr));
-        popup.getMenu().findItem(R.id.package_lock_task)
-                .setEnabled(Utils.isLockToAppEnabled(mContext));
+        boolean addFavEnabled = intentStr != null && !mFavoriteList.contains(intentStr);
+        if (!addFavEnabled) {
+            popup.getMenu().removeItem(R.id.package_add_favorite);
+        }
+        if (!Utils.isLockToAppEnabled(mContext)) {
+            popup.getMenu().removeItem(R.id.package_lock_task);
+        }
+        if (Utils.isMultiStackEnabled(mContext)) {
+            if (mConfiguration.isLandscape()) {
+                popup.getMenu().findItem(R.id.package_top_task).setTitle(R.string.package_left_task_title);
+                popup.getMenu().findItem(R.id.package_bottom_task).setTitle(R.string.package_right_task_title);
+            }
+            if (ad.getTaskId() < 0) {
+                popup.getMenu().findItem(R.id.package_top_task).setEnabled(false);
+                popup.getMenu().findItem(R.id.package_bottom_task).setEnabled(false);
+                popup.getMenu().removeItem(R.id.package_full_task);
+            } else {
+                int taskPlace = mRecentsManager.getTaskPlace(ad);
+                if (taskPlace == 2) {
+                    popup.getMenu().removeItem(R.id.package_full_task);
+                }
+                if (taskPlace == 0) {
+                    popup.getMenu().removeItem(R.id.package_top_task);
+                }
+                if (taskPlace == 1) {
+                    popup.getMenu().removeItem(R.id.package_bottom_task);
+                }
+            }
+        } else {
+            popup.getMenu().removeItem(R.id.package_top_task);
+            popup.getMenu().removeItem(R.id.package_bottom_task);
+            popup.getMenu().removeItem(R.id.package_full_task);
+        }
         popup.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
             public boolean onMenuItemClick(MenuItem item) {
                 if (item.getItemId() == R.id.recent_float_item) {
@@ -846,6 +880,12 @@ public abstract class AbstractSwitchLayout implements ISwitchLayout {
                     }
                     mRecentsManager.stopLockToApp(false);
                     mRecentsManager.lockToApp(ad, mAutoClose);
+                } else if (item.getItemId() == R.id.package_top_task) {
+                    mRecentsManager.placeTask(ad, 0);
+                } else if (item.getItemId() == R.id.package_bottom_task) {
+                    mRecentsManager.placeTask(ad, 1);
+                } else if (item.getItemId() == R.id.package_full_task) {
+                    mRecentsManager.placeTask(ad, 2);
                 } else {
                     return false;
                 }
@@ -926,8 +966,10 @@ public abstract class AbstractSwitchLayout implements ISwitchLayout {
         mPopup = popup;
         popup.getMenuInflater().inflate(R.menu.package_popup_menu,
                 popup.getMenu());
-        popup.getMenu().findItem(R.id.package_add_favorite)
-                .setEnabled(!mFavoriteList.contains(packageItem.getIntent()));
+        boolean addFavEnabled = !mFavoriteList.contains(packageItem.getIntent());
+        if (!addFavEnabled) {
+            popup.getMenu().removeItem(R.id.package_add_favorite);
+        }
         popup.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
             public boolean onMenuItemClick(MenuItem item) {
                 if (item.getItemId() == R.id.package_inspect_item) {
@@ -1308,9 +1350,37 @@ public abstract class AbstractSwitchLayout implements ISwitchLayout {
         if (key.equals(SettingsActivity.PREF_BG_STYLE) ||
                 key.equals(SettingsActivity.PREF_SHOW_LABELS) ||
                 key.equals(SettingsActivity.PREF_ICON_SIZE) ||
-                key.equals(SettingsActivity.PREF_ICONPACK)) {
+                key.equals(SettingsActivity.PREF_ICONPACK) ||
+                key.equals(SettingsActivity.PREF_THUMB_SIZE)) {
             return true;
         }
         return false;
+    }
+
+    protected abstract View getButtonList();
+
+    protected void selectButtonContainer() {
+        if (mConfiguration.mButtonPos == 0) {
+            mButtonListContainerTop.removeAllViews();
+            mButtonListContainerBottom.removeAllViews();
+            mButtonListContainerBottom.setVisibility(View.GONE);
+            mButtonListContainerTop.addView(getButtonList());
+            mButtonListContainerTop.setVisibility(View.VISIBLE);
+            mButtonListContainer = mButtonListContainerTop;
+       } else {
+            mButtonListContainerTop.removeAllViews();
+            mButtonListContainerBottom.removeAllViews();
+            mButtonListContainerTop.setVisibility(View.GONE);
+            mButtonListContainerBottom.addView(getButtonList());
+            mButtonListContainerBottom.setVisibility(View.VISIBLE);
+            mButtonListContainer = mButtonListContainerBottom;
+        }
+    }
+
+    /* if quick switcher was triggerd update() will be called
+    but the values never reset since hideDone() is not called */
+    public void resetRecentsState() {
+        mTaskLoadDone = false;
+        mUpdateNoRecentsTasksDone = false;
     }
 }

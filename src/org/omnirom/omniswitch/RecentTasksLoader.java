@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013 The OmniROM Project
+ *  Copyright (C) 2013-2016 The OmniROM Project
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,6 +46,7 @@ import android.util.Log;
 public class RecentTasksLoader {
     private static final String TAG = "RecentTasksLoader";
     private static final boolean DEBUG = false;
+    private static final int MAX_TASKS = 50;
 
     private Context mContext;
     private AsyncTask<Void, List<TaskDescription>, Void> mTaskLoader;
@@ -120,7 +121,7 @@ public class RecentTasksLoader {
     }
 
     // Create an TaskDescription, returning null if the title or icon is null
-    TaskDescription createTaskDescription(int taskId, int persistentTaskId,
+    TaskDescription createTaskDescription(int taskId, int persistentTaskId, int stackId,
             Intent baseIntent, ComponentName origActivity,
             CharSequence description, boolean activeTask) {
         // clear source bounds to find matching package intent
@@ -144,7 +145,8 @@ public class RecentTasksLoader {
 
                 TaskDescription ad = new TaskDescription(taskId,
                         persistentTaskId, resolveInfo, baseIntent,
-                        info.packageName, description, activeTask);
+                        info.packageName, description, activeTask,
+                        stackId);
                 ad.setLabel(title);
 
                 return ad;
@@ -257,7 +259,7 @@ public class RecentTasksLoader {
                                 pm, 0);
                 boolean isFirstValidTask = true;
 
-                for (int i = 0; i < numTasks; ++i) {
+                for (int i = 0; i < numTasks && i < MAX_TASKS; ++i) {
                     if (isCancelled()) {
                         break;
                     }
@@ -331,9 +333,9 @@ public class RecentTasksLoader {
                     }
 
                     TaskDescription item = createTaskDescription(recentInfo.id,
-                            recentInfo.persistentId, recentInfo.baseIntent,
-                            recentInfo.origActivity, recentInfo.description,
-                            activeTask);
+                            recentInfo.persistentId, recentInfo.stackId,
+                            recentInfo.baseIntent, recentInfo.origActivity,
+                            recentInfo.description, activeTask);
 
                     if (item != null) {
                         mLoadedTasks.add(item);

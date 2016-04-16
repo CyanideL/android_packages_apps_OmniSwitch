@@ -54,7 +54,6 @@ public class SettingsActivity extends PreferenceActivity implements
 
     public static final String PREF_OPACITY = "opacity";
     public static final String PREF_ANIMATE = "animate";
-    public static final String PREF_START_ON_BOOT = "start_on_boot";
     public static final String PREF_ICON_SIZE = "icon_size";
     public static final String PREF_DRAG_HANDLE_LOCATION = "drag_handle_location_new";
     private static final String PREF_ADJUST_HANDLE = "adjust_handle";
@@ -89,6 +88,7 @@ public class SettingsActivity extends PreferenceActivity implements
     public static final String PREF_APP_FILTER_TIME = "app_filter_time";
     public static final String PREF_THUMB_SIZE = "thumb_size";
     public static final String PREF_APP_FILTER_RUNNING = "app_filter_running";
+    public static final String PREF_HANDLE_WIDTH = "handle_width";
 
     public static int BUTTON_KILL_ALL = 0;
     public static int BUTTON_KILL_OTHER = 1;
